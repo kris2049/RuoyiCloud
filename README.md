@@ -104,3 +104,85 @@ RuoYi-Cloud框架是微服务框架，框架自带基础模块，其中包含API
     ruoyi-auth->>ruoyi-auth: 记录登录信息
     ruoyi-auth-->>User: 返回登录结果
 ```
+## RuoYi-Cloud框架对用户的相关操作
+
+上述的内容中也包含了与用户(User)相关的一些技术细节，但是都是用User来举例说明其他细节。接下来详细讨论一下User在ruoyi-cloud下是如何工作的。
+
+框架对User的处理主要在ruoyi-system模块下，从数据层到业务层的顺序，相关文件依次是：SysUserMapper.xml, mapper包下的SysUserMapper接口，service包下的ISysUserService接口和其实现类。 在xml文件中是SQL语句，MyBatis基于这些SQL语句与Mapper接口进行映射来实现对数据库的操作。service包下的接口和其实现类没什么特别的。
+
+在Controller层，会发现有些注解比较有意思: @RequiresPermissions，@InnerAuth   这两个注解是自定义注解，下面看看它们的实现：
+
+- @RequiresPermissions
+
+  这个注解有两个注解：@Retention和@Target， 第一个注解表示@RequirePermissions注解的生命周期为运行时，这表明注解的信息在运行时是可用的，可以被反射机制读取和使用。 第二个注解表示@RequirePermissions注解可以应用于方法或类。
+
+  @RequirePermissions注解包含两个属性： value(),logical()   第一个属性是一个字符串数组，代表了需要校验的权限，例如"system:user:list"，表示查看用户列表的权限。有些情况下，value()数组的权限码可能不止一个，所以需要第二个属性logical()来定义不同权限之间需要满足的逻辑关系，例如，Logical.AND说明如果一个方法被标记为@RequiresPermissions({"system:user:list", "system:user:add"})，那么只有同时具备 "system:user:list" 和 "system:user:add" 权限的用户才能访问这个方法。
+
+```mermaid
+  graph TD
+    A[请求路径为 /list] --> B[调用 SysUserController 类中的 list 方法]
+    B --> C{是否存在 @RequiresPermissions 注解}
+    C -- 是 --> D[调用 PreAuthorizeAspect 类的 around 方法进行注解鉴权]
+    D --> E[调用 checkMethodAnnotation 方法进行鉴权]
+    E --> F[调用 AuthUtil 类的 checkPermi 方法]
+    F --> G[调用 AuthLogic 类的 checkPermi 方法]
+    G --> H{注解的 value 方法返回 AND 还是 OR}
+    H -- AND --> I[调用 checkPermiAnd 方法判断条件是否满足]
+    H -- OR --> J[调用 checkPermiOr 方法判断条件是否满足]
+    I --> K{条件是否满足}
+    J --> K
+    K -- 是 --> L[回到 PreAuthorizeAspect 类的 around 方法继续执行]
+    K -- 否 --> M[抛出 NotPermissionException 异常]
+    C -- 否 --> L
+```
+
+- @InnerAuth
+  @InnerAuth注解也是自定义注解，它还是切面类InnerAuthAspect的检查对象，具体检查过程不再分析，下面展示检查流程图。
+
+```mermaid
+  graph TD
+    A[请求路径为 /register] --> B[调用 SysUserController 类中的 register 方法]
+    B --> C{是否存在 @InnerAuth 注解}
+    C -- 是 --> D[调用 InnerAuthAspect 类的 innerAround 方法进行内部服务调用验证]
+    D --> E[从请求头中获取 FROM_SOURCE 字段的值]
+    E --> F{FROM_SOURCE 是否等于 INNER}
+    F -- 否 --> G[抛出 InnerAuthException 异常，提示没有内部访问权限]
+    F -- 是 --> H[从请求头中获取 DETAILS_USER_ID 和 DETAILS_USERNAME 字段的值]
+    H --> I{innerAuth.isUser 返回值是否为真 且 DETAILS_USER_ID 或 DETAILS_USERNAME 是否为空}
+    I -- 是 --> J[抛出 InnerAuthException 异常，提示没有设置用户信息]
+    I -- 否 --> K[调用 point.proceed 方法 执行原始的 info 方法逻辑]
+    C -- 否 --> K
+    K --> L[返回 info 方法的执行结果]
+```
+
+- @Log
+  @Log也是一个自定义注解，下面是该注解的执行流程
+```mermaid
+  graph TD
+    A[请求进入] --> B{是否包含 @Log 注解}
+    B -- 是 --> C[记录开始时间]
+    C --> D[请求处理完成或发生异常]
+    D --> E{是否发生异常}
+    E -- 是 --> F[记录异常信息]
+    E -- 否 --> G[获取方法描述信息]
+    F --> G
+    G --> H[设置操作日志的各项属性]
+    H --> I[保存操作日志到数据库]
+    I --> J[结束]
+    B -- 否 --> J
+```
+以上内容基本上就是ruoyi-cloud框架对User的一些操作和具体细节，透过User对象的list和register方法，分析了框架通过AOP和注解对权限的控制。接下来探究一下框架对菜单Menu的操作。
+
+当点击系统管理下的菜单管理时，会以层状结构显示出当前系统的所有菜单信息。 虽然页面上显示的是层状的，但是在后端数据中，父菜单与子菜单之间的关系是树状的。当请求url为system/menu/list的时候，根据当前正在使用系统的用户的权限来返回对应的menu类型的列表。此时列表中的menu之间是没有关系的，如果想要在前端展示出逻辑关系，需要为这些menu创建树型关系，也就是请求url为/treeselect的方法treeselect()。
+
+接下来探究一下，如何在menu之间建立树型关系。
+
+treeselect()被调用后，首先获得当前用户权限下的所有menus，并将其存放在列表中。之后调用buildMenuTreeSelect()方法，在这个方法中又调用了buildMenuTree()方法，传入参数为含有所有menus的列表。 在buildMenuTree方法中，首先创建了一个返回列表用来返回创建好树型关系之后的menus，之后将menus的Id单独存放到列表tempList中，之后使用迭代器遍历menus中的每个menu，如果当前迭代的menu的ParentId不在tempList内，说明当前的menu是最顶级的菜单项(系统管理，系统监控，系统工具，若依官网)。为了判断以上内容的准确性，通过Navicat来观察
+sys_menu表
+
+
+
+
+
+
+
