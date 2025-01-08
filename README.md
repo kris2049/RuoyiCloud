@@ -180,7 +180,7 @@ RuoYi-Cloud框架是微服务框架，框架自带基础模块，其中包含API
 treeselect()被调用后，首先获得当前用户权限下的所有menus，并将其存放在列表中。之后调用buildMenuTreeSelect()方法，在这个方法中又调用了buildMenuTree()方法，传入参数为含有所有menus的列表。 在buildMenuTree方法中，首先创建了一个返回列表用来返回创建好树型关系之后的menus，之后将menus的Id单独存放到列表tempList中，之后使用迭代器遍历menus中的每个menu，如果当前迭代的menu的ParentId不在tempList内，说明当前的menu是最顶级的菜单项(系统管理，系统监控，系统工具，若依官网)。为了判断以上内容的准确性，通过Navicat来观察
 sys_menu表
 
-
+![sys_menu表](sys_menu.npg)
 
 
 
