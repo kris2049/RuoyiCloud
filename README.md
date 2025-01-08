@@ -179,9 +179,33 @@ RuoYi-Cloud框架是微服务框架，框架自带基础模块，其中包含API
 
 treeselect()被调用后，首先获得当前用户权限下的所有menus，并将其存放在列表中。之后调用buildMenuTreeSelect()方法，在这个方法中又调用了buildMenuTree()方法，传入参数为含有所有menus的列表。 在buildMenuTree方法中，首先创建了一个返回列表用来返回创建好树型关系之后的menus，之后将menus的Id单独存放到列表tempList中，之后使用迭代器遍历menus中的每个menu，如果当前迭代的menu的ParentId不在tempList内，说明当前的menu是最顶级的菜单项(系统管理，系统监控，系统工具，若依官网)。为了判断以上内容的准确性，通过Navicat来观察
 sys_menu表
+![sys_menu表](https://github.com/kris2049/RuoyiCloud/blob/main/sys_menu.png)
 
-![sys_menu表](sys_menu.npg)
+图片中作为顶级菜单项的菜单的menu_id分别是1，2，3，4， 他们的parentId都是0。 因此通过判断tempList中是否包含当前menu的ParentId可以筛选出顶级菜单。 
 
+找到顶级菜单后， 调用recursionFn()，这个方法的传入参数为所有的menus和当前迭代得到的顶级菜单。 在recursionFn()中，调用getChildList(), 传入参数与recursionFn()一致。 在getChildList()中， 首先创建一个数组列表，用来返回当前顶级菜单所有的子菜单， 之后使用迭代器，迭代所有的menus，判断当前迭代的menu的ParentId与当前的顶级菜单的Id是否相同，如果相同，说明当前menu是当前顶级菜单的子菜单，将其添加到数组列表中。getChildList()执行完毕后，就获得了当前顶级菜单的所有子菜单，然后更新顶级菜单的Children属性。但是观察若依官网会发现，顶级菜单的子菜单下还可能会分层，所以还要依次构建所有menus之间树型关系，因此通过递归调用recursionFn来实现。 递归完成后，所有menus的Children都会得到正确的设置， 这样一来，所有menus的树型结构就被创建起来了。 回到buildMenuTree()，递归方法结束后，将顶级菜单加入了之前创建好的返回列表中，最后返回这个返回列表到controller层。
+
+```mermaid
+  graph TD
+    A[开始] --> B[获取当前用户ID]
+    B --> C[根据用户ID获取菜单树]
+    C --> D[创建返回列表]
+    D --> E[将菜单ID存入临时列表]
+    E --> F[遍历菜单列表]
+    F --> G{菜单是否为顶级菜单？}
+    G --> |是| H[调用recursionFn构建子菜单树]
+    G --> |否| I[继续遍历]
+    H --> J[调用getChildList获取子菜单]
+    J --> K[遍历子菜单列表]
+    K --> L{子菜单是否存在？}
+    L --> |是| M[将子菜单添加到顶级菜单的Children属性]
+    L --> |否| N[结束遍历]
+    M --> O[递归调用recursionFn构建下一级子菜单树]
+    O --> P[将顶级菜单添加到返回列表]
+    P --> Q[返回菜单树列表]
+    Q --> R[结束]
+```
+在若依网页界面的左侧是菜单路由，这一部分的信息是由请求url"getRouters"获得的。 服务层的对应的方法是buildMenus()。 它的逻辑并不复杂，不再详细分析。
 
 
 
